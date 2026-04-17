@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VOD Library</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+<style>
+  :root {
+    --alice:  #F0F8FF;
+    --accent: #0d6efd;
+    --border: #d0dde8;
+    --text:   #1a2332;
+    --muted:  #6c757d;
+  }
+
+  body { background: #fff; color: var(--text); }
+
+  /* ── Navbar ── */
+  .top-nav {
+    background: var(--alice);
+    border-bottom: 1px solid var(--border);
+  }
+  .navbar-brand { font-weight: 700; color: var(--text); letter-spacing: .3px; }
+  .search-wrap { max-width: 480px; }
+
+  /* ── Sidebar ── */
+  .sidebar { min-width: 210px; }
+  .sidebar-section {
+    background: var(--alice);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .85rem 1rem;
+    margin-bottom: .85rem;
+  }
+  .sidebar-section .section-label {
+    font-size: .68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #4a6fa5;
+    margin-bottom: .6rem;
+  }
+
+  /* ── Cards ── */
+  .rec-card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: border-color .15s, box-shadow .15s, transform .1s;
+  }
+  .rec-card:hover {
+    border-color: var(--accent);
+    box-shadow: 0 4px 16px rgba(13,110,253,.12);
+    transform: translateY(-2px);
+  }
+  .thumb-wrap {
+    position: relative;
+    background: #e8eef4;
+    aspect-ratio: 16/9;
+    overflow: hidden;
+  }
+  .thumb-wrap img { width: 100%; height: 100%; object-fit: cover; }
+  .thumb-placeholder {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    color: #a8b8c8; font-size: 3rem;
+  }
+  .thumb-overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.3);
+    opacity: 0; transition: opacity .15s;
+  }
+  .rec-card:hover .thumb-overlay { opacity: 1; }
+  .thumb-overlay .play-btn {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: rgba(13,110,253,.88);
+    border: none; color: #fff; font-size: 1.4rem;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .duration-badge {
+    position: absolute; bottom: 6px; right: 8px;
+    background: rgba(0,0,0,.65); color: #fff;
+    font-size: .72rem; padding: 1px 6px; border-radius: 4px;
+  }
+  .progress-overlay {
+    position: absolute; bottom: 0; left: 0; right: 0; height: 4px;
+    background: #cdd8e3;
+  }
+  .progress-bar-inner { height: 100%; background: var(--accent); transition: width .5s; }
+
+  .card-body { padding: .85rem 1rem; }
+  .rec-title {
+    font-weight: 600; font-size: .95rem; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-bottom: .25rem;
+  }
+  .rec-meta { font-size: .78rem; color: var(--muted); }
+  .card-footer-btns { padding: .5rem 1rem .75rem; gap: .4rem; display: flex; }
+  .card-footer-btns .btn { font-size: .78rem; padding: .22rem .6rem; flex: 1; }
+
+  /* Status badges */
+  .badge-ready       { background: #198754; color: #fff; }
+  .badge-recording   { background: #dc3545; color: #fff; animation: pulse 1.2s infinite; }
+  .badge-transcoding { background: #fd7e14; color: #fff; }
+  .badge-error       { background: #6c757d; color: #fff; }
+  .badge-expired     { background: #dee2e6; color: #6c757d; }
+  .badge-pending     { background: #0d6efd; color: #fff; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
+
+  /* Format chips */
+  .fmt-chip {
+    display: inline-block; font-size: .63rem;
+    padding: 0 5px; border-radius: 8px; margin: 1px;
+    font-weight: 600; letter-spacing: .3px;
+  }
+  .fmt-hls  { background: #cfe2ff; color: #084298; }
+  .fmt-dash { background: #d1e7dd; color: #0a3622; }
+
+  /* Resolution chips */
+  .res-chip {
+    display: inline-block; font-size: .65rem;
+    padding: 1px 6px; border-radius: 10px;
+    background: var(--alice); color: #4a6fa5;
+    border: 1px solid #b8cfe4; margin: 1px;
+  }
+
+  /* Upload drop zone */
+  #drop-zone {
+    border: 2px dashed #aac; border-radius: 10px;
+    padding: 2rem; text-align: center; color: #8899aa;
+    transition: border-color .15s, color .15s; cursor: pointer;
+  }
+  #drop-zone.drag-over { border-color: var(--accent); color: var(--accent); }
+
+  /* Empty / loading states */
+  .empty-state { color: #aab; }
+  .toast-container { z-index: 9999; }
+
+  /* Stats panel */
+  #stats-panel .stat-val { font-weight: 600; color: var(--text); }
+</style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="top-nav navbar px-3 py-2">
+  <a class="navbar-brand" href="/">
+    <i class="bi bi-play-circle-fill text-primary me-1"></i> VOD Library
+  </a>
+  <div class="ms-3 search-wrap flex-grow-1">
+    <div class="input-group input-group-sm">
+      <span class="input-group-text" style="background:var(--alice);border-color:var(--border);">
+        <i class="bi bi-search text-muted"></i>
+      </span>
+      <input id="search-input" type="search"
+             class="form-control"
+             style="border-color:var(--border);"
+             placeholder="Search title, description, tags…" autocomplete="off" />
+    </div>
+  </div>
+  <div class="ms-auto d-flex gap-2 ms-3">
+    <button class="btn btn-sm btn-outline-danger" onclick="openRecordModal()">
+      <i class="bi bi-record-circle"></i> Live Record
+    </button>
+    <button class="btn btn-sm btn-primary" onclick="openUploadModal()">
+      <i class="bi bi-upload"></i> Upload
+    </button>
+  </div>
+</nav>
+
+<div class="container-fluid px-3 py-3">
+  <div class="d-flex gap-3">
+
+    <!-- Sidebar -->
+    <aside class="sidebar d-none d-md-block">
+
+      <div class="sidebar-section">
+        <div class="section-label">Status</div>
+        <div class="d-flex flex-column gap-1" id="status-filters">
+          <button class="btn btn-sm btn-outline-secondary text-start active" data-status="">All</button>
+          <button class="btn btn-sm btn-outline-success text-start"  data-status="ready">
+            <i class="bi bi-check-circle me-1"></i>Ready</button>
+          <button class="btn btn-sm btn-outline-danger text-start"   data-status="recording">
+            <i class="bi bi-record-circle me-1"></i>Recording</button>
+          <button class="btn btn-sm btn-outline-warning text-start"  data-status="transcoding">
+            <i class="bi bi-gear me-1"></i>Transcoding</button>
+          <button class="btn btn-sm btn-outline-secondary text-start" data-status="error">
+            <i class="bi bi-exclamation-circle me-1"></i>Error</button>
+          <button class="btn btn-sm btn-outline-secondary text-start" data-status="expired">
+            <i class="bi bi-clock-history me-1"></i>Expired</button>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-label">Date Range</div>
+        <div class="d-flex flex-column gap-1">
+          <input id="date-from" type="date" class="form-control form-control-sm"
+                 style="border-color:var(--border);" />
+          <input id="date-to"   type="date" class="form-control form-control-sm"
+                 style="border-color:var(--border);" />
+          <button class="btn btn-sm btn-outline-primary" onclick="applyDateFilter()">Apply</button>
+          <button class="btn btn-sm btn-link text-muted p-0" onclick="clearDateFilter()">Clear</button>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-label">Library Stats</div>
+        <div id="stats-panel" class="text-muted" style="font-size:.82rem;"></div>
+      </div>
+
+    </aside>
+
+    <!-- Main grid -->
+    <main class="flex-grow-1">
+
+      <!-- Mobile filter pills -->
+      <div class="d-flex gap-1 flex-wrap mb-3 d-md-none">
+        <button class="btn btn-sm btn-outline-secondary active" data-status="">All</button>
+        <button class="btn btn-sm btn-outline-success"  data-status="ready">Ready</button>
+        <button class="btn btn-sm btn-outline-danger"   data-status="recording">Recording</button>
+        <button class="btn btn-sm btn-outline-warning"  data-status="transcoding">Transcoding</button>
+        <button class="btn btn-sm btn-outline-secondary" data-status="error">Error</button>
+      </div>
+
+      <small class="text-muted" id="result-count"></small>
+
+      <div id="card-grid" class="row row-cols-1 row-cols-sm-2 row-cols-xl-3 row-cols-xxl-4 g-3 mt-1"></div>
+
+      <div id="empty-state" class="empty-state text-center py-5 d-none">
+        <i class="bi bi-collection-play display-3"></i>
+        <p class="mt-3">No recordings found.</p>
+      </div>
+      <div id="loading" class="text-center py-5 d-none">
+        <div class="spinner-border text-primary"></div>
+      </div>
+      <div class="d-flex justify-content-center mt-3 gap-2" id="pagination"></div>
+    </main>
+  </div>
+</div>
+
+
+<!-- ── Live Record Modal ───────────────────────────────────────────────────── -->
+<div class="modal fade" id="recordModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--alice);border-color:var(--border);">
+        <h5 class="modal-title"><i class="bi bi-record-circle text-danger me-2"></i>Live Recording</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Title <span class="text-danger">*</span></label>
+          <input id="rec-title" type="text" class="form-control" placeholder="My broadcast" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Description</label>
+          <textarea id="rec-desc" class="form-control" rows="2"></textarea>
+        </div>
+        <div class="row mb-3">
+          <div class="col">
+            <label class="form-label fw-semibold">Source Type</label>
+            <select id="rec-type" class="form-select">
+              <option value="rtsp">RTSP</option>
+              <option value="hls">HLS</option>
+              <option value="udp">UDP/TS</option>
+            </select>
+          </div>
+          <div class="col">
+            <label class="form-label fw-semibold">Retain (days)</label>
+            <input id="rec-retain" type="number" class="form-control" value="7" min="1" />
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Source URL <span class="text-danger">*</span></label>
+          <input id="rec-url" type="text" class="form-control font-monospace"
+                 placeholder="rtsp://192.168.1.10:554/live" />
+        </div>
+        <div class="row mb-3">
+          <div class="col">
+            <label class="form-label fw-semibold">Duration (sec, 0 = manual stop)</label>
+            <input id="rec-duration" type="number" class="form-control" value="0" min="0" />
+          </div>
+          <div class="col">
+            <label class="form-label fw-semibold">Tags (comma-separated)</label>
+            <input id="rec-tags" type="text" class="form-control" placeholder="news, live" />
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Output Resolutions</label>
+          <div class="d-flex gap-3 flex-wrap">
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="r-1080" value="1080p" checked /><label class="form-check-label" for="r-1080">1080p</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="r-720"  value="720p"  checked /><label class="form-check-label" for="r-720">720p</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="r-480"  value="480p"  checked /><label class="form-check-label" for="r-480">480p</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="r-360"  value="360p"        /><label class="form-check-label" for="r-360">360p</label></div>
+          </div>
+          <small class="text-muted">Both HLS and MPEG-DASH are produced for each selected resolution.</small>
+        </div>
+      </div>
+      <div class="modal-footer" style="border-color:var(--border);">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" onclick="submitRecord()">
+          <i class="bi bi-record-fill me-1"></i>Start Recording
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ── Upload Modal ────────────────────────────────────────────────────────── -->
+<div class="modal fade" id="uploadModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--alice);border-color:var(--border);">
+        <h5 class="modal-title"><i class="bi bi-upload text-primary me-2"></i>Upload Video</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Title <span class="text-danger">*</span></label>
+          <input id="up-title" type="text" class="form-control" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Description</label>
+          <textarea id="up-desc" class="form-control" rows="2"></textarea>
+        </div>
+        <div class="row mb-3">
+          <div class="col">
+            <label class="form-label fw-semibold">Retain (days)</label>
+            <input id="up-retain" type="number" class="form-control" value="30" min="1" />
+          </div>
+          <div class="col">
+            <label class="form-label fw-semibold">Tags</label>
+            <input id="up-tags" type="text" class="form-control" placeholder="archive, show" />
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Output Resolutions</label>
+          <div class="d-flex gap-3 flex-wrap">
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="ur-1080" value="1080p" checked /><label class="form-check-label" for="ur-1080">1080p</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="ur-720"  value="720p"  checked /><label class="form-check-label" for="ur-720">720p</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="ur-480"  value="480p"  checked /><label class="form-check-label" for="ur-480">480p</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="ur-360"  value="360p"       /><label class="form-check-label" for="ur-360">360p</label></div>
+          </div>
+          <small class="text-muted">Both HLS and MPEG-DASH are produced automatically.</small>
+        </div>
+        <div id="drop-zone" onclick="document.getElementById('file-input').click()"
+             ondragover="event.preventDefault();this.classList.add('drag-over')"
+             ondragleave="this.classList.remove('drag-over')"
+             ondrop="handleDrop(event)">
+          <i class="bi bi-cloud-upload fs-2 mb-2 d-block" style="color:#7090b0;"></i>
+          <div id="drop-label">Click or drag a video file here</div>
+          <div id="file-name" class="text-primary mt-1 fw-semibold"></div>
+        </div>
+        <input id="file-input" type="file" accept="video/*" class="d-none" onchange="fileChosen(this)" />
+        <div id="upload-progress" class="mt-2 d-none">
+          <div class="progress" style="height:8px;">
+            <div id="upload-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width:0%"></div>
+          </div>
+          <small class="text-muted" id="upload-status">Uploading…</small>
+        </div>
+      </div>
+      <div class="modal-footer" style="border-color:var(--border);">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="upload-btn" onclick="submitUpload()">
+          <i class="bi bi-upload me-1"></i>Upload &amp; Transcode
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ── Edit Modal ──────────────────────────────────────────────────────────── -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--alice);border-color:var(--border);">
+        <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Edit Recording</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="edit-id" />
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Title</label>
+          <input id="edit-title" type="text" class="form-control" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Description</label>
+          <textarea id="edit-desc" class="form-control" rows="3"></textarea>
+        </div>
+        <div class="row mb-3">
+          <div class="col">
+            <label class="form-label fw-semibold">Tags (comma-separated)</label>
+            <input id="edit-tags" type="text" class="form-control" />
+          </div>
+          <div class="col">
+            <label class="form-label fw-semibold">Retain (days)</label>
+            <input id="edit-retain" type="number" class="form-control" min="1" />
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="border-color:var(--border);">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="submitEdit()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ── Stop Recording Modal ────────────────────────────────────────────────── -->
+<div class="modal fade" id="stopModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--alice);border-color:var(--border);">
+        <h5 class="modal-title text-danger"><i class="bi bi-stop-circle me-2"></i>Stop Recording</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-0">Stop recording and begin transcoding (HLS + DASH)?</p>
+        <input type="hidden" id="stop-id" />
+      </div>
+      <div class="modal-footer" style="border-color:var(--border);">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" onclick="submitStop()">Stop &amp; Transcode</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- Toast -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+  <div id="toast" class="toast align-items-center border-0" role="alert">
+    <div class="d-flex">
+      <div class="toast-body" id="toast-body"></div>
+      <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  </div>
+</div>
+
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const PAGE_SIZE = 24;
+let state = { q: '', status: '', dateFrom: '', dateTo: '', page: 0, total: 0, items: [] };
+let uploadFile = null;
+let refreshTimer = null;
+
+// ── Modals & Toast ─────────────────────────────────────────────────────────
+const recordModal = new bootstrap.Modal(document.getElementById('recordModal'));
+const uploadModal = new bootstrap.Modal(document.getElementById('uploadModal'));
+const editModal   = new bootstrap.Modal(document.getElementById('editModal'));
+const stopModal   = new bootstrap.Modal(document.getElementById('stopModal'));
+const toastEl     = document.getElementById('toast');
+const toastBS     = new bootstrap.Toast(toastEl, { delay: 3500 });
+
+function showToast(msg, type = 'success') {
+  toastEl.className = `toast align-items-center border-0 text-bg-${type}`;
+  document.getElementById('toast-body').textContent = msg;
+  toastBS.show();
+}
+
+// ── API ────────────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body && !(body instanceof FormData)) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  } else if (body) {
+    opts.body = body;
+  }
+  const r = await fetch(path, opts);
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({ detail: r.statusText }));
+    throw new Error(err.detail || r.statusText);
+  }
+  return r.status === 204 ? null : r.json();
+}
+
+// ── Load & render ──────────────────────────────────────────────────────────
+async function load() {
+  document.getElementById('loading').classList.remove('d-none');
+  document.getElementById('card-grid').innerHTML = '';
+  document.getElementById('empty-state').classList.add('d-none');
+
+  const params = new URLSearchParams({ limit: PAGE_SIZE, offset: state.page * PAGE_SIZE });
+  if (state.q)        params.set('q', state.q);
+  if (state.status)   params.set('status', state.status);
+  if (state.dateFrom) params.set('date_from', state.dateFrom);
+  if (state.dateTo)   params.set('date_to',   state.dateTo);
+
+  try {
+    const data = await api('GET', `/api/recordings?${params}`);
+    state.total = data.total;
+    state.items = data.items;
+    render(data.items);
+    renderPagination(data.total);
+    document.getElementById('result-count').textContent =
+      `${data.total} recording${data.total !== 1 ? 's' : ''}`;
+    loadStats();
+  } catch (e) {
+    showToast(e.message, 'danger');
+  } finally {
+    document.getElementById('loading').classList.add('d-none');
+  }
+}
+
+function render(items) {
+  const grid  = document.getElementById('card-grid');
+  const empty = document.getElementById('empty-state');
+  grid.innerHTML = '';
+  if (!items.length) { empty.classList.remove('d-none'); return; }
+
+  items.forEach(r => {
+    const col = document.createElement('div');
+    col.className = 'col';
+    col.innerHTML = cardHTML(r);
+    grid.appendChild(col);
+  });
+
+  const active = items.some(r => ['recording','transcoding'].includes(r.status));
+  clearTimeout(refreshTimer);
+  if (active) refreshTimer = setTimeout(load, 4000);
+}
+
+function cardHTML(r) {
+  const statusClass = {
+    ready:'badge-ready', recording:'badge-recording', transcoding:'badge-transcoding',
+    error:'badge-error', expired:'badge-expired', pending:'badge-pending',
+  }[r.status] || 'badge-pending';
+
+  const thumb = r.thumbnail_url
+    ? `<img src="${r.thumbnail_url}" alt="" loading="lazy" />`
+    : `<div class="thumb-placeholder"><i class="bi bi-film"></i></div>`;
+
+  const dur = r.duration_seconds ? fmtDur(r.duration_seconds) : '';
+  const durBadge = dur ? `<span class="duration-badge">${dur}</span>` : '';
+
+  const progressBar = r.status === 'transcoding'
+    ? `<div class="progress-overlay"><div class="progress-bar-inner" style="width:${r.progress}%"></div></div>`
+    : '';
+
+  const overlay = r.status === 'ready'
+    ? `<div class="thumb-overlay"><button class="play-btn" onclick="playRecording('${r.id}')"><i class="bi bi-play-fill"></i></button></div>`
+    : '';
+
+  const resChips = r.resolutions_available.map(res =>
+    `<span class="res-chip">${res}</span>`).join('');
+
+  const fmtChips = [
+    r.resolutions_available.length ? '<span class="fmt-chip fmt-hls">HLS</span>' : '',
+    r.dash_available              ? '<span class="fmt-chip fmt-dash">DASH</span>' : '',
+  ].join('');
+
+  const expiresIn = r.date_expires ? daysUntil(r.date_expires) : null;
+  const expiryText = expiresIn !== null
+    ? (expiresIn <= 0 ? 'Expired' : `Expires in ${expiresIn}d`) : '';
+
+  return `
+  <div class="rec-card h-100" data-id="${r.id}">
+    <div class="thumb-wrap">
+      ${thumb}${overlay}${durBadge}${progressBar}
+    </div>
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-start mb-1">
+        <div class="rec-title" title="${escHtml(r.title)}">${escHtml(r.title)}</div>
+        <span class="badge ${statusClass} ms-2 flex-shrink-0">${r.status}</span>
+      </div>
+      <div class="rec-meta mb-1">${fmtDate(r.date_recorded)}</div>
+      <div class="mb-1">${resChips} ${fmtChips}</div>
+      ${r.tags.length ? `<div class="rec-meta"><i class="bi bi-tag me-1"></i>${escHtml(r.tags.join(', '))}</div>` : ''}
+      ${expiryText ? `<div class="rec-meta mt-1" style="color:${expiresIn <= 3 ? '#c05000' : 'var(--muted)'};">
+        <i class="bi bi-clock me-1"></i>${expiryText}</div>` : ''}
+      ${r.status === 'transcoding' ? `<div class="rec-meta mt-1 text-warning fw-semibold">
+        <i class="bi bi-gear me-1"></i>${r.progress}% — HLS${r.progress >= 50 ? ' ✓, DASH' : ''} encoding…</div>` : ''}
+      ${r.status === 'error' ? `<div class="rec-meta mt-1 text-danger" title="${escHtml(r.error_message||'')}">
+        <i class="bi bi-exclamation-circle me-1"></i>Error</div>` : ''}
+    </div>
+    <div class="card-footer-btns">
+      ${buildActionBtns(r)}
+    </div>
+  </div>`;
+}
+
+function buildActionBtns(r) {
+  const btns = [];
+  if (r.status === 'ready')
+    btns.push(`<button class="btn btn-sm btn-primary" onclick="playRecording('${r.id}')"><i class="bi bi-play-fill"></i> Play</button>`);
+  if (r.status === 'recording')
+    btns.push(`<button class="btn btn-sm btn-danger" onclick="confirmStop('${r.id}')"><i class="bi bi-stop-fill"></i> Stop</button>`);
+  if (['ready','error','pending'].includes(r.status))
+    btns.push(`<button class="btn btn-sm btn-outline-secondary" onclick="openEdit('${r.id}')"><i class="bi bi-pencil"></i></button>`);
+  if (r.status === 'error')
+    btns.push(`<button class="btn btn-sm btn-outline-warning" onclick="retranscode('${r.id}')"><i class="bi bi-arrow-repeat"></i></button>`);
+  btns.push(`<button class="btn btn-sm btn-outline-danger" onclick="deleteRec('${r.id}')"><i class="bi bi-trash"></i></button>`);
+  return btns.join('');
+}
+
+function renderPagination(total) {
+  const pages = Math.ceil(total / PAGE_SIZE);
+  const pg = document.getElementById('pagination');
+  pg.innerHTML = '';
+  if (pages <= 1) return;
+  for (let i = 0; i < pages; i++) {
+    const btn = document.createElement('button');
+    btn.className = `btn btn-sm ${i === state.page ? 'btn-primary' : 'btn-outline-secondary'}`;
+    btn.textContent = i + 1;
+    btn.onclick = () => { state.page = i; load(); };
+    pg.appendChild(btn);
+  }
+}
+
+async function loadStats() {
+  try {
+    const s = await api('GET', '/api/stats');
+    const mb = (s.total_size_bytes / 1024 / 1024).toFixed(0);
+    document.getElementById('stats-panel').innerHTML = `
+      <div class="d-flex justify-content-between"><span>Total</span><span class="stat-val">${s.total_recordings}</span></div>
+      <div class="d-flex justify-content-between text-success"><span>Ready</span><span class="stat-val">${s.ready}</span></div>
+      ${s.recording  ? `<div class="d-flex justify-content-between text-danger"><span>Recording</span><span class="stat-val">${s.recording}</span></div>` : ''}
+      ${s.transcoding? `<div class="d-flex justify-content-between text-warning"><span>Transcoding</span><span class="stat-val">${s.transcoding}</span></div>` : ''}
+      ${s.error      ? `<div class="d-flex justify-content-between text-secondary"><span>Errors</span><span class="stat-val">${s.error}</span></div>` : ''}
+      <div class="d-flex justify-content-between mt-1 pt-1" style="border-top:1px solid var(--border);">
+        <span>Storage</span><span class="stat-val">${mb} MB</span>
+      </div>`;
+  } catch (_) {}
+}
+
+// ── Actions ────────────────────────────────────────────────────────────────
+function playRecording(id) { window.open(`/player/${id}`, '_blank'); }
+
+function confirmStop(id) {
+  document.getElementById('stop-id').value = id;
+  stopModal.show();
+}
+async function submitStop() {
+  const id = document.getElementById('stop-id').value;
+  stopModal.hide();
+  try {
+    await api('POST', `/api/recordings/${id}/stop`);
+    showToast('Recording stopped — transcoding started');
+    load();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+function openEdit(id) {
+  const rec = state.items.find(r => r.id === id);
+  if (!rec) return;
+  document.getElementById('edit-id').value = rec.id;
+  document.getElementById('edit-title').value = rec.title;
+  document.getElementById('edit-desc').value = rec.description;
+  document.getElementById('edit-tags').value = rec.tags.join(', ');
+  document.getElementById('edit-retain').value = rec.days_to_retain;
+  editModal.show();
+}
+async function submitEdit() {
+  const id   = document.getElementById('edit-id').value;
+  const tags = document.getElementById('edit-tags').value.split(',').map(t=>t.trim()).filter(Boolean);
+  try {
+    await api('PATCH', `/api/recordings/${id}`, {
+      title: document.getElementById('edit-title').value,
+      description: document.getElementById('edit-desc').value,
+      tags,
+      days_to_retain: parseInt(document.getElementById('edit-retain').value),
+    });
+    editModal.hide();
+    showToast('Recording updated');
+    load();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+async function deleteRec(id) {
+  if (!confirm('Delete this recording and all its files?')) return;
+  try {
+    await api('DELETE', `/api/recordings/${id}`);
+    showToast('Recording deleted');
+    load();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+async function retranscode(id) {
+  try {
+    await api('POST', `/api/recordings/${id}/transcode`, { resolutions: ['1080p','720p','480p'] });
+    showToast('Transcoding restarted (HLS + DASH)');
+    load();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+// ── Live Record ────────────────────────────────────────────────────────────
+function openRecordModal() { recordModal.show(); }
+
+function getCheckedResolutions(prefix) {
+  return ['1080p','720p','480p','360p']
+    .map(r => ({ r, el: document.getElementById(`${prefix}-${r.replace('p','')}`) }))
+    .filter(({el}) => el && el.checked)
+    .map(({r}) => r);
+}
+
+async function submitRecord() {
+  const title = document.getElementById('rec-title').value.trim();
+  const url   = document.getElementById('rec-url').value.trim();
+  if (!title || !url) { showToast('Title and URL are required', 'warning'); return; }
+  const dur  = parseInt(document.getElementById('rec-duration').value) || null;
+  const tags = document.getElementById('rec-tags').value.split(',').map(t=>t.trim()).filter(Boolean);
+  try {
+    await api('POST', '/api/recordings/record', {
+      title, description: document.getElementById('rec-desc').value,
+      tags, source_url: url,
+      source_type: document.getElementById('rec-type').value,
+      days_to_retain: parseInt(document.getElementById('rec-retain').value) || 7,
+      duration_seconds: dur || null,
+      resolutions: getCheckedResolutions('r'),
+    });
+    recordModal.hide();
+    showToast('Recording started');
+    load();
+  } catch (e) { showToast(e.message, 'danger'); }
+}
+
+// ── Upload ─────────────────────────────────────────────────────────────────
+function openUploadModal() {
+  uploadFile = null;
+  document.getElementById('file-name').textContent = '';
+  document.getElementById('drop-label').textContent = 'Click or drag a video file here';
+  document.getElementById('upload-progress').classList.add('d-none');
+  uploadModal.show();
+}
+function fileChosen(input) { if (input.files[0]) setFile(input.files[0]); }
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('video/')) setFile(f);
+  else showToast('Please drop a video file', 'warning');
+}
+function setFile(f) {
+  uploadFile = f;
+  document.getElementById('file-name').textContent = f.name;
+  document.getElementById('drop-label').textContent = 'File selected:';
+}
+
+async function submitUpload() {
+  const title = document.getElementById('up-title').value.trim();
+  if (!title)      { showToast('Title is required', 'warning'); return; }
+  if (!uploadFile) { showToast('Please select a file', 'warning'); return; }
+
+  const tags = document.getElementById('up-tags').value.split(',').map(t=>t.trim()).filter(Boolean);
+  const resolutions = getCheckedResolutions('ur').join(',') || '1080p,720p,480p';
+
+  let rec;
+  try {
+    rec = await api('POST', '/api/recordings', {
+      title, description: document.getElementById('up-desc').value,
+      tags, days_to_retain: parseInt(document.getElementById('up-retain').value) || 30,
+    });
+  } catch (e) { showToast(e.message, 'danger'); return; }
+
+  document.getElementById('upload-progress').classList.remove('d-none');
+  document.getElementById('upload-btn').disabled = true;
+
+  const fd = new FormData();
+  fd.append('file', uploadFile);
+  fd.append('resolutions', resolutions);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', `/api/recordings/${rec.id}/upload`);
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable) {
+      const pct = Math.round(e.loaded / e.total * 100);
+      document.getElementById('upload-bar').style.width = pct + '%';
+      document.getElementById('upload-status').textContent = `Uploading… ${pct}%`;
+    }
+  };
+  xhr.onload = () => {
+    if (xhr.status < 300) {
+      document.getElementById('upload-status').textContent = 'Upload complete — transcoding HLS + DASH…';
+      setTimeout(() => {
+        uploadModal.hide();
+        document.getElementById('upload-btn').disabled = false;
+        showToast('File uploaded — transcoding in progress');
+        load();
+      }, 800);
+    } else {
+      showToast('Upload failed: ' + xhr.responseText, 'danger');
+      document.getElementById('upload-btn').disabled = false;
+    }
+  };
+  xhr.onerror = () => {
+    showToast('Upload error', 'danger');
+    document.getElementById('upload-btn').disabled = false;
+  };
+  xhr.send(fd);
+}
+
+// ── Filters ────────────────────────────────────────────────────────────────
+document.getElementById('search-input').addEventListener('input', debounce(e => {
+  state.q = e.target.value.trim(); state.page = 0; load();
+}, 350));
+
+document.querySelectorAll('[data-status]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-status]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.status = btn.dataset.status; state.page = 0; load();
+  });
+});
+
+function applyDateFilter() {
+  state.dateFrom = document.getElementById('date-from').value;
+  state.dateTo   = document.getElementById('date-to').value;
+  state.page = 0; load();
+}
+function clearDateFilter() {
+  document.getElementById('date-from').value = '';
+  document.getElementById('date-to').value   = '';
+  state.dateFrom = state.dateTo = ''; load();
+}
+
+// ── Utilities ──────────────────────────────────────────────────────────────
+function fmtDur(sec) {
+  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = Math.floor(sec%60);
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+function fmtDate(iso) {
+  if (!iso) return '';
+  return new Date(iso+(iso.endsWith('Z')?'':'Z'))
+    .toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'});
+}
+function daysUntil(iso) {
+  return Math.ceil((new Date(iso+(iso.endsWith('Z')?'':'Z')) - Date.now()) / 86400000);
+}
+function escHtml(str) {
+  return String(str).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function debounce(fn, ms) {
+  let t; return (...a) => { clearTimeout(t); t = setTimeout(()=>fn(...a), ms); };
+}
+
+load();
+</script>
+</body>
+</html>
